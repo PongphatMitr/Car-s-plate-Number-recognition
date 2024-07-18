@@ -181,7 +181,7 @@ def extract_text_from_plate(plate_img):
     return text
 
 # Load your image
-image_path = "path/to/your/image.jpg"
+image_path = r"C:\Users\pongp\Downloads\Senior\DataSet\download (2).jpg"
 input_img = cv2.imread(image_path)
 
 # Create a PlateFinder instance
