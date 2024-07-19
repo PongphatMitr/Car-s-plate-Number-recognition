@@ -1,61 +1,62 @@
-import argparse
+import easyocr
 import cv2
+import argparse
 import numpy as np
-from PIL import Image, ImageDraw
-import pytesseract
+# Constants
+IOU_THRESHOLD = 0.5
+# Helper functions
+def calculate_iou(box_a, box_b):
+    x_a = max(box_a[0], box_b[0])
+    y_a = max(box_a[1], box_b[1])
+    x_b = min(box_a[2], box_b[2])
+    y_b = min(box_a[3], box_b[3])
+    inter_area = max(0, x_b - x_a) * max(0, y_b - y_a)
+    box_a_area = (box_a[2] - box_a[0]) * (box_a[3] - box_a[1])
+    box_b_area = (box_b[2] - box_b[0]) * (box_b[3] - box_b[1])
+    iou = inter_area / float(box_a_area + box_b_area - inter_area)
+    return iou
 
-# Path to the Tesseract executable
-pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'  # Update this path if necessary
-
-def preprocess_image(image_path):
-    # Load the image
-    image = cv2.imread(image_path)
-    # Convert to grayscale
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+def process_detections(detections, detected_texts):
+    new_detections = {}
+    for detection in detections:
+        text = detection['text']
+        bbox = detection['bbox']
+        if text in detected_texts:
+            # Update existing detection
+            existing_detection = detected_texts[text]
+            existing_detection['bbox'] = bbox
+        else:
+            # Add new detection
+            new_detections[text] = {'bbox': bbox}
     
-    # Apply GaussianBlur to reduce noise
-    gray = cv2.GaussianBlur(gray, (5, 5), 0)
-    
-    # Apply adaptive thresholding
-    thresh = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 11, 2)
-    
-    # Perform morphological operations to enhance text
-    kernel = np.ones((3, 3), np.uint8)
-    morph = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel, iterations=1)
-    return morph, image
+    return new_detections
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--image', required=True, help='Path to the image file')
     args = parser.parse_args()
 
-    # Preprocess the image
+    # Initialize EasyOCR reader
+    reader = easyocr.Reader(['en'])
+
+    # Read and process image
     image_path = args.image
-    preprocessed_image, original_image = preprocess_image(image_path)
+    image = cv2.imread(image_path)
+    result = reader.readtext(image_path)
+    
+    detections = [{'text': r[1], 'bbox': r[0]} for r in result]
 
-    # Convert to PIL Image
-    pil_image = Image.fromarray(preprocessed_image)
-
-    # Perform OCR with Thai language and numbers
-    custom_config = r'--oem 3 --psm 6 -l tha+eng'
-    text = pytesseract.image_to_string(pil_image, config=custom_config)
-
-    # Get bounding boxes
-    boxes = pytesseract.image_to_boxes(pil_image, config=custom_config)
-
-    # Draw bounding boxes
-    draw = ImageDraw.Draw(pil_image)
-    for box in boxes.splitlines():
-        box = box.split(' ')
-        draw.rectangle(((int(box[1]), int(box[2])), (int(box[3]), int(box[4]))), outline="red")
-
-    print("Recognized Text:", text)
-
-    # Convert back to OpenCV image
-    result_image = np.array(pil_image)
-
+    detected_texts = {}
+    detected_texts = process_detections(detections, detected_texts)
+    
+    # Draw bounding boxes on the image
+    for text, detection in detected_texts.items():
+        bbox = detection['bbox']
+        cv2.polylines(image, [np.array(bbox, dtype=np.int32)], isClosed=True, color=(0, 255, 0), thickness=2)
+        cv2.putText(image, text, (int(bbox[0][0]), int(bbox[0][1] - 10)), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+    
     # Display the result
-    cv2.imshow('Image', result_image)
+    cv2.imshow('Image', image)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
 
